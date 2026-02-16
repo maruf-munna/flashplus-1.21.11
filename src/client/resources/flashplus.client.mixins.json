@@ -1,0 +1,12 @@
+{
+	"required": true,
+	"package": "redsmods.flashplus.mixin.client",
+	"compatibilityLevel": "JAVA_21",
+	"client": [
+		"ExportJobMixin",
+		"SelectedEntityPopupMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

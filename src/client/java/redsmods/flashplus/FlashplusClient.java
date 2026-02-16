@@ -1,0 +1,18 @@
+package redsmods.flashplus;
+
+import net.fabricmc.api.ClientModInitializer;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+public class FlashplusClient implements ClientModInitializer {
+	public static List<Map<String, Object>> trackedmodels = new ArrayList<Map<String, Object>>();
+	public static boolean cjson = true;
+	public static boolean etjson = true;
+
+	@Override
+	public void onInitializeClient() {
+		// This entrypoint is suitable for setting up client-specific logic, such as rendering.
+	}
+}

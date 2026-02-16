@@ -38,6 +38,8 @@ dependencies {
 	// Fabric Loader and API
 	modImplementation("net.fabricmc:fabric-loader:${loader_version}")
 	modImplementation("net.fabricmc.fabric-api:fabric-api:${fabric_api_version}")
+	include(implementation("org.apache.httpcomponents:httpclient:4.5.14"))
+	include(implementation("org.apache.httpcomponents:httpcore:4.4.16"))
 
 	// JiJ MixinExtras if required to be newer than minimum loader-provided version
 	// 0.4.1 since 0.16.8

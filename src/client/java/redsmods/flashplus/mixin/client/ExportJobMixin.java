@@ -20,6 +20,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.LocalCapture;
+import redsmods.flashplus.Flashplus;
 import redsmods.flashplus.FlashplusClient;
 
 import java.io.FileWriter;
@@ -71,11 +72,7 @@ public abstract class ExportJobMixin {
 		this.flashPlus$trackedData = new ArrayList<>();
 		this.flashPlus$gson = new GsonBuilder().setPrettyPrinting().create();
 		this.flashPlus$tick = 0;
-
-		ReplayServer replayServer = Flashback.getReplayServer();
-//		if (replayServer != null) {
-//			this.flashPlus$previousFov = replayServer.savefov;
-//		}
+		this.flashPlus$previousFov = FlashplusClient.fov;
 	}
 
 	/**
@@ -186,19 +183,21 @@ public abstract class ExportJobMixin {
 		// roll is also missing for some reason
 		keyframeData.put("roll", 0); // replayServer.saveroll
 
-		// Calculate FOV with interpolation
+		// grab MC fov
+//		keyframeData.put("fov", FlashplusClient.getFOV());
+
+		// Calculate FOV
 		float currentOverrideFov = replayServer.getEditorState().replayVisuals.overrideFovAmount;
-		// we don't get FOV in that file, maybe that was implemented by IAmMaddieAtYou, so later me issue
-//		float keyframeStartFov = this.flashPlus$previousFov;
-//		float keyframeEndFov = replayServer.savefov;
+		float keyframeStartFov = this.flashPlus$previousFov;
+		float keyframeEndFov = FlashplusClient.getFOV();
 
 		final float EPSILON = 0.001f;
-//		boolean isOverrideDifferent = Math.abs(currentOverrideFov - keyframeEndFov) > EPSILON;
+		boolean isOverrideDifferent = Math.abs(currentOverrideFov - keyframeEndFov) > EPSILON;
 
-//		float targetFov = isOverrideDifferent ? currentOverrideFov : keyframeEndFov;
-//		float interpolatedFov = (float) (keyframeStartFov + (targetFov - keyframeStartFov) * partialClientTick);
+		float targetFov = isOverrideDifferent ? currentOverrideFov : keyframeEndFov;
+		float interpolatedFov = (float) (keyframeStartFov + (targetFov - keyframeStartFov) * partialClientTick);
 
-		keyframeData.put("fov", currentOverrideFov);
+		keyframeData.put("fov", keyframeEndFov);
 
 		flashPlus$allCameraKeyframes.add(keyframeData);
 	}

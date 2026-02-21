@@ -4,7 +4,8 @@
 	"compatibilityLevel": "JAVA_21",
 	"client": [
 		"ExportJobMixin",
-		"SelectedEntityPopupMixin"
+		"SelectedEntityPopupMixin",
+		"keyframes.FOVKeyframeMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

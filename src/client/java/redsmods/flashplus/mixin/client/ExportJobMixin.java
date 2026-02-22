@@ -19,8 +19,6 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-import org.spongepowered.asm.mixin.injection.callback.LocalCapture;
-import redsmods.flashplus.Flashplus;
 import redsmods.flashplus.FlashplusClient;
 
 import java.io.FileWriter;
@@ -177,11 +175,16 @@ public abstract class ExportJobMixin {
 		Vec3 positionVec3 = camera.position();
 		keyframeData.put("position", new double[]{positionVec3.x, positionVec3.y, positionVec3.z});
 
-		// shake was removed at some point
-		keyframeData.put("yaw", camera.yRot());
-		keyframeData.put("pitch", camera.xRot());
-		// roll is also missing for some reason
-		keyframeData.put("roll", 0); // replayServer.saveroll
+		if (FlashplusClient.useQuaternion) {
+			keyframeData.put("w", FlashplusClient.quaternion.w);
+			keyframeData.put("x", FlashplusClient.quaternion.x);
+			keyframeData.put("y", FlashplusClient.quaternion.y);
+			keyframeData.put("z", FlashplusClient.quaternion.z);
+		} else {
+			keyframeData.put("yaw", camera.yRot());
+			keyframeData.put("pitch", camera.xRot());
+			keyframeData.put("roll", FlashplusClient.roll);
+		}
 
 		// grab MC fov
 //		keyframeData.put("fov", FlashplusClient.getFOV());

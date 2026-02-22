@@ -5,7 +5,9 @@
 	"client": [
 		"ExportJobMixin",
 		"SelectedEntityPopupMixin",
-		"keyframes.FOVKeyframeMixin"
+		"keyframes.FOVKeyframeMixin",
+		"keyframes.MinecraftKeyframeHandlerMixin",
+		"keyframes.CameraRotationMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

@@ -1,6 +1,7 @@
 package redsmods.flashplus;
 
 import net.fabricmc.api.ClientModInitializer;
+import org.joml.Quaternionf;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -10,7 +11,12 @@ public class FlashplusClient implements ClientModInitializer {
 	public static List<Map<String, Object>> trackedmodels = new ArrayList<Map<String, Object>>();
 	public static boolean cjson = true;
 	public static boolean etjson = true;
+	public static boolean useQuaternion = true;
+
+
 	public static float fov;
+	public static double roll;
+	public static Quaternionf quaternion;
 
 	public static float getFOV() {
 		return fov;

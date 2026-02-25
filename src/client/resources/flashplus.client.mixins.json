@@ -7,7 +7,8 @@
 		"SelectedEntityPopupMixin",
 		"keyframes.FOVKeyframeMixin",
 		"keyframes.MinecraftKeyframeHandlerMixin",
-		"keyframes.CameraRotationMixin"
+		"keyframes.CameraRotationMixin",
+		"StartExportWindowMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

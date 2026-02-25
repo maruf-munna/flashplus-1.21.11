@@ -2,6 +2,7 @@ package redsmods.flashplus.mixin.client;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.mojang.authlib.minecraft.client.MinecraftClient;
 import com.moulberry.flashback.Flashback;
 import com.moulberry.flashback.exporting.*;
 import com.moulberry.flashback.playback.ReplayServer;
@@ -20,7 +21,9 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import redsmods.flashplus.FlashplusClient;
+import redsmods.flashplus.PanoramaScreenshotHelper;
 
+import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -48,6 +51,7 @@ public abstract class ExportJobMixin {
 	private boolean cameraJson = true;
 	private boolean entityTracking = true;
 	private int flashPlus$tick = 0;
+	private boolean flashPlus$panoramaDone = false;
 
 	/**
 	 * Initialize data structures at the start of doExport, right after renderStartTime is set
@@ -71,6 +75,18 @@ public abstract class ExportJobMixin {
 		this.flashPlus$gson = new GsonBuilder().setPrettyPrinting().create();
 		this.flashPlus$tick = 0;
 		this.flashPlus$previousFov = FlashplusClient.fov;
+		this.flashPlus$panoramaDone = false;
+
+		if (FlashplusClient.takePanorama && !flashPlus$panoramaDone) {
+			flashPlus$panoramaDone = true;
+
+			Path outputPath = this.settings.output();
+			String pathStr = outputPath.toAbsolutePath().toString();
+			int lastDot = pathStr.lastIndexOf('.');
+			String basePath = lastDot > 0 ? pathStr.substring(0, lastDot) : pathStr;
+
+			PanoramaScreenshotHelper.takePanorama(Minecraft.getInstance(), basePath);
+		}
 	}
 
 	/**
@@ -261,7 +277,7 @@ public abstract class ExportJobMixin {
 							blockPos.z
 					});
 					partData.put("entityrotation", new double[]{
-							entity.getXRot(),
+							entity.getYRot(),
 							entity.getYRot(),
 							0.0
 					});

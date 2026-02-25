@@ -12,6 +12,7 @@ public class FlashplusClient implements ClientModInitializer {
 	public static boolean cjson = true;
 	public static boolean etjson = true;
 	public static boolean useQuaternion = true;
+	public static boolean takePanorama = false;
 
 
 	public static float fov;

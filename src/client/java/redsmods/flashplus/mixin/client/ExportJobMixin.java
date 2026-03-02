@@ -84,7 +84,6 @@ public abstract class ExportJobMixin {
 			String pathStr = outputPath.toAbsolutePath().toString();
 			int lastDot = pathStr.lastIndexOf('.');
 			String basePath = lastDot > 0 ? pathStr.substring(0, lastDot) : pathStr;
-
 			PanoramaScreenshotHelper.takePanorama(Minecraft.getInstance(), basePath);
 		}
 	}
@@ -141,7 +140,7 @@ public abstract class ExportJobMixin {
 	private void flashPlus$writeJsonFiles(
 			VideoWriter videoWriter,
 			SaveableFramebufferQueue downloader,
-			CallbackInfo ci) {
+			CallbackInfo ci) throws IOException {
 
 		// Apply Gaussian smoothing to FOV
 		flashPlus$applySmoothingToFov();
@@ -163,6 +162,7 @@ public abstract class ExportJobMixin {
 				e.printStackTrace();
 			}
 		}
+		PanoramaScreenshotHelper.tryConvert(basePath);
 
 		// Write entity tracking JSON
 		if(entityTracking) {
@@ -197,8 +197,8 @@ public abstract class ExportJobMixin {
 			keyframeData.put("y", FlashplusClient.quaternion.y);
 			keyframeData.put("z", FlashplusClient.quaternion.z);
 		} else {
-			keyframeData.put("yaw", camera.yRot());
-			keyframeData.put("pitch", camera.xRot());
+			keyframeData.put("yaw", camera.getYRot());
+			keyframeData.put("pitch", camera.getXRot());
 			keyframeData.put("roll", FlashplusClient.roll);
 		}
 

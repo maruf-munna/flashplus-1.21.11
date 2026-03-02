@@ -38,3 +38,4 @@ hs_err_*.log
 replay_*.log
 *.hprof
 *.jfr
+/libs/Flashback-0.39.1-for-MC1.21.10.jar

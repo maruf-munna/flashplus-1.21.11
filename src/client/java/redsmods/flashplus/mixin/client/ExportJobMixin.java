@@ -140,7 +140,7 @@ public abstract class ExportJobMixin {
 	private void flashPlus$writeJsonFiles(
 			VideoWriter videoWriter,
 			SaveableFramebufferQueue downloader,
-			CallbackInfo ci) {
+			CallbackInfo ci) throws IOException {
 
 		// Apply Gaussian smoothing to FOV
 		flashPlus$applySmoothingToFov();
@@ -162,6 +162,7 @@ public abstract class ExportJobMixin {
 				e.printStackTrace();
 			}
 		}
+		PanoramaScreenshotHelper.tryConvert(basePath);
 
 		// Write entity tracking JSON
 		if(entityTracking) {

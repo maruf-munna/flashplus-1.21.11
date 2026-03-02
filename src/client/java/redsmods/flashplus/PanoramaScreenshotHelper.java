@@ -7,6 +7,9 @@ import net.minecraft.client.Screenshot;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class PanoramaScreenshotHelper {
 
@@ -26,52 +29,9 @@ public class PanoramaScreenshotHelper {
 
             // Use Minecraft's built-in panorama capture
             mc.grabPanoramixScreenshot(targetDir);
-            File screenshotsDir = new File(targetDir, "screenshots");
-
-            // Wait for all 6 faces to finish writing
-            for (int i = 0; i < 6; i++) {
-                File face = new File(screenshotsDir, "panorama_" + i + ".png");
-                long deadline = System.currentTimeMillis() + 10_000;
-                long lastSize = -1;
-                while (System.currentTimeMillis() < deadline) {
-                    try { Thread.sleep(100); } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                    if (face.exists()) {
-                        long size = face.length();
-                        if (size > 0 && size == lastSize) break;
-                        lastSize = size;
-                    }
-                }
-            }
-
-            // Load all 6 faces
-            BufferedImage[] faces = new BufferedImage[6];
-            for (int i = 0; i < 6; i++) {
-                File face = new File(screenshotsDir, "panorama_" + i + ".png");
-                faces[i] = ImageIO.read(face);
-                if (faces[i] == null) throw new RuntimeException("Face " + i + " failed to load");
-            }
-
-            // Async convert to equirectangular
-            final BufferedImage[] facesFinal = faces;
-            final File equirectFile = new File(outputBase + "_panorama_equirectangular.png");
-            Thread convertThread = new Thread(() -> {
-                try {
-                    BufferedImage equirect = toEquirectangular(facesFinal, 8192, 4096);
-                    ImageIO.write(equirect, "png", equirectFile);
-                } catch (Exception e) {
-                    // log if needed
-                }
-            });
-            convertThread.setDaemon(true);
-            convertThread.start();
-
-            Flashback.getReplayServer().getEditorState().replayVisuals.overrideFov = true;
 
         } catch (Exception e) {
-            // log if needed
+            Flashplus.LOGGER.error(String.valueOf(e));
         } finally {
             mc.player.setXRot(savedXRot);
             mc.player.setYRot(savedYRot);
@@ -92,6 +52,46 @@ public class PanoramaScreenshotHelper {
      *   4 = Top    (+Y, pitch=-90)
      *   5 = Bottom (-Y, pitch=+90)
      */
+
+    public static boolean tryConvert(String outputBase) throws IOException {
+        Path outbot = Paths.get(outputBase);
+        Path panoramaDir = outbot.resolveSibling(outbot.getFileName() + "_panorama");
+        System.out.println(panoramaDir.toString());
+        File screenshotsDir = panoramaDir.resolve("screenshots").toFile();
+        System.out.println(screenshotsDir.toString());
+
+
+        // Check all 6 faces exist before attempting to read
+        for (int i = 0; i < 6; i++) {
+            File face = new File(screenshotsDir, "panorama_" + i + ".png");
+            if (!face.exists() || !face.canRead()) return false;
+        }
+
+        // Load all 6 faces
+        BufferedImage[] faces = new BufferedImage[6];
+        for (int i = 0; i < 6; i++) {
+            File face = new File(screenshotsDir, "panorama_" + i + ".png");
+            faces[i] = ImageIO.read(face);
+            if (faces[i] == null) return false;
+        }
+
+        // Async convert to equirectangular
+        final BufferedImage[] facesFinal = faces;
+        File equirectFile = panoramaDir.resolve("equirectangular.png").toFile();
+        Thread convertThread = new Thread(() -> {
+            try {
+                BufferedImage equirect = toEquirectangular(facesFinal, 8192, 4096);
+                ImageIO.write(equirect, "png", equirectFile);
+            } catch (Exception e) {
+                // log if needed
+            }
+        });
+        convertThread.setDaemon(true);
+        convertThread.start();
+
+        Flashback.getReplayServer().getEditorState().replayVisuals.overrideFov = true;
+        return true;
+    }
     public static BufferedImage toEquirectangular(BufferedImage[] faces, int outWidth, int outHeight) {
         BufferedImage out = new BufferedImage(outWidth, outHeight, BufferedImage.TYPE_INT_RGB);
         int faceSize = faces[0].getWidth();

@@ -40,11 +40,7 @@ public class StartExportWindowMixin {
             useQuaternion = !useQuaternion;
         }
 
-        ImGui.sameLine();
-
-        if (ImGui.checkbox("Take Panorama", takePanorama)) {
-            takePanorama = !takePanorama;
-        }
+//        ImGui.sameLine();
     }
 
 }

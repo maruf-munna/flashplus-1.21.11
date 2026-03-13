@@ -13,7 +13,7 @@ public class FlashplusClient implements ClientModInitializer {
 	public static boolean etjson = true;
 	public static boolean useQuaternion = true;
 	public static boolean takePanorama = false;
-
+	public static boolean deleteCubeMap = true;
 
 	public static float fov;
 	public static double roll;

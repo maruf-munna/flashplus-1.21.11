@@ -1,5 +1,6 @@
 package redsmods.flashplus;
 
+import com.mojang.blaze3d.platform.NativeImage;
 import com.moulberry.flashback.Flashback;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
@@ -8,6 +9,7 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -158,5 +160,93 @@ public class PanoramaScreenshotHelper {
         }
 
         return out;
+    }
+
+    public static void convertCubemapToEquirectangular(Path baseFolder, String baseName, int faceSize) {
+        int outWidth = faceSize * 4;
+        int outHeight = faceSize * 2;
+        NativeImage equi = new NativeImage(outWidth, outHeight, false);
+
+        // 1. Cache the 6 faces in memory
+        // Standard order: +X, -X, +Y, -Y, +Z, -Z
+        String[] suffixes = {"_right", "_left", "_up", "_down", "_front", "_back"};
+        NativeImage[] faces = new NativeImage[6];
+        try {
+            for (int i = 0; i < 6; i++) {
+                Path path = baseFolder.resolve(baseName + suffixes[i] + ".png");
+                try (var is = Files.newInputStream(path)) {
+                    faces[i] = NativeImage.read(is);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+            return;
+        }
+
+        // 2. Perform Projection
+        for (int v = 0; v < outHeight; v++) {
+            // Normalize V to [0, 1] then to latitude [-PI/2, PI/2]
+            double theta = (v / (double) outHeight) * Math.PI;
+
+            for (int u = 0; u < outWidth; u++) {
+                // Normalize U to [0, 1] then to longitude [-PI, PI]
+                double phi = (u / (double) outWidth) * 2 * Math.PI;
+
+                // Spherical to Cartesian (Standard OpenGL-style coordinates)
+                double x = Math.sin(theta) * Math.cos(phi);
+                double y = Math.cos(theta);
+                double z = Math.sin(theta) * Math.sin(phi);
+
+                int faceIndex;
+                double uc, vc;
+                double absX = Math.abs(x), absY = Math.abs(y), absZ = Math.abs(z);
+
+                // Determine which face and calculate UV (-1 to 1 range)
+                if (absX >= absY && absX >= absZ) {
+                    faceIndex = x > 0 ? 0 : 1; // Right (+X) or Left (-X)
+                    uc = (x > 0 ? -z : z) / absX;
+                    vc = -y / absX;
+                } else if (absY >= absX && absY >= absZ) {
+                    faceIndex = y > 0 ? 2 : 3; // Up (+Y) or Down (-Y)
+                    uc = x / absY;
+                    vc = (y > 0 ? z : -z) / absY;
+                } else {
+                    faceIndex = z > 0 ? 4 : 5; // Front (+Z) or Back (-Z)
+                    uc = (z > 0 ? x : -x) / absZ;
+                    vc = -y / absZ;
+                }
+
+                // Map UV (-1 to 1) to Pixel (0 to faceSize - 1)
+                int px = (int) Math.min(faceSize - 1, Math.max(0, (0.5 * (uc + 1.0) * faceSize)));
+                int py = (int) Math.min(faceSize - 1, Math.max(0, (0.5 * (vc + 1.0) * faceSize)));
+
+                // Use pixel copy to ensure color bit-order is preserved
+                equi.setPixel(u, v, faces[faceIndex].getPixel(px, py));
+            }
+        }
+
+        // 3. Save and Cleanup
+        try {
+            equi.writeToFile(baseFolder.resolve(baseName + "_panorama.png"));
+            for (NativeImage img : faces) {
+                if (img != null) img.close();
+            }
+            equi.close();
+            if (FlashplusClient.deleteCubeMap) {
+                for (int i = 0; i < 6; i++) {
+                    Path facePath = baseFolder.resolve(baseName + suffixes[i] + ".png");
+                    try {
+                        boolean deleted = Files.deleteIfExists(facePath);
+                        if (deleted) {
+                            System.out.println("Deleted source face: " + facePath.getFileName());
+                        }
+                    } catch (IOException e) {
+                        System.err.println("Failed to delete " + facePath.getFileName() + ": " + e.getMessage());
+                    }
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 }

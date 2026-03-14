@@ -19,6 +19,7 @@ public class FlashplusClient implements ClientModInitializer {
 	public static float fov;
 	public static double roll;
 	public static Quaternionf quaternion;
+	public static int time;
 
 	public static float getFOV() {
 		return fov;

@@ -18,8 +18,6 @@ public class StartExportWindowMixin {
     private static final ImInt flashPlus$lightingInterval = new ImInt(lightingIntervalTicks);
     @Unique
     private static final ImInt flashPlus$lightingMultiplier = new ImInt(lightingMultiplier);
-    @Unique
-    private static final ImInt flashPlus$panoramaInterval = new ImInt(panoramaIntervalTicks);
 
     @Inject(
             method = "render",
@@ -48,11 +46,11 @@ public class StartExportWindowMixin {
             useQuaternion = !useQuaternion;
         }
 
-        // Lighting Export Option (SH / 27 coefficients)
-        if (ImGui.checkbox("Export Lighting (SH)", exportLightingSh)) {
+        // Lighting Export Option
+        if (ImGui.checkbox("Export Lighting", exportLightingSh)) {
             exportLightingSh = !exportLightingSh;
         }
-        ImGuiHelper.tooltip("Export Spherical Harmonics lighting (Sun direction, color, intensity, sky ambient) to Lighting.json for Blender");
+        ImGuiHelper.tooltip("Export world lighting data (Sun direction, color, intensity, sky ambient) to Lighting.json for Blender");
 
         if (exportLightingSh) {
             flashPlus$lightingInterval.set(lightingIntervalTicks);
@@ -66,32 +64,6 @@ public class StartExportWindowMixin {
                 lightingMultiplier = Math.max(1, flashPlus$lightingMultiplier.get());
             }
             ImGuiHelper.tooltip("Intensity multiplier for Blender Sun & Ambient light (default 1)");
-        }
-
-        // Panorama Export Option (HDRI)
-        if (ImGui.checkbox("Export Panoramas (HDRI)", panoramaExportEnabled)) {
-            panoramaExportEnabled = !panoramaExportEnabled;
-        }
-        ImGuiHelper.tooltip("Captures time-varying equirectangular panoramas at fixed tick intervals");
-
-        if (panoramaExportEnabled) {
-            flashPlus$panoramaInterval.set(panoramaIntervalTicks);
-            if (ImGui.inputInt("Panorama Interval (ticks)", flashPlus$panoramaInterval, 100, 1000)) {
-                panoramaIntervalTicks = Math.max(1, flashPlus$panoramaInterval.get());
-            }
-            ImGuiHelper.tooltip("Interval in ticks between panorama captures (e.g. 1200 ticks = 60s at 20tps)");
-
-            if (ImGui.checkbox("Save EXR", exportPanoramaExr)) {
-                exportPanoramaExr = !exportPanoramaExr;
-            }
-            ImGuiHelper.tooltip("Export 16-bit half-float OpenEXR (.exr) files");
-
-            ImGui.sameLine();
-
-            if (ImGui.checkbox("Save HDR", exportPanoramaHdr)) {
-                exportPanoramaHdr = !exportPanoramaHdr;
-            }
-            ImGuiHelper.tooltip("Export Radiance RGBE (.hdr) files");
         }
     }
 }

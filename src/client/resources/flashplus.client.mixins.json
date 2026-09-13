@@ -9,10 +9,8 @@
 		"keyframes.MinecraftKeyframeHandlerMixin",
 		"keyframes.CameraRotationMixin",
 		"Window.StartExportWindowMixin",
-		"Window.ExportScreenshotWindowMixin",
 		"Window.MovementWindowMixin",
-		"ReplayUIRollMixin",
-		"CameraMixin"
+		"ReplayUIRollMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

@@ -12,20 +12,12 @@ public class FlashplusClient implements ClientModInitializer {
 	public static boolean cjson = true;
 	public static boolean etjson = true;
 	public static boolean useQuaternion = true;
-	public static boolean takePanorama = false;
-	public static boolean deleteCubeMap = true;
 	public static boolean lockRoll = false;
 
 	// Lighting export options
 	public static boolean exportLightingSh = true;
 	public static int lightingIntervalTicks = 20;
 	public static int lightingMultiplier = 1;
-
-	// Panorama export options
-	public static boolean panoramaExportEnabled = false;
-	public static int panoramaIntervalTicks = 1200;
-	public static boolean exportPanoramaExr = true;
-	public static boolean exportPanoramaHdr = true;
 
 	public static float fov;
 	public static double roll;

@@ -11,7 +11,8 @@
 		"Window.StartExportWindowMixin",
 		"Window.ExportScreenshotWindowMixin",
 		"Window.MovementWindowMixin",
-		"ReplayUIRollMixin"
+		"ReplayUIRollMixin",
+		"CameraMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

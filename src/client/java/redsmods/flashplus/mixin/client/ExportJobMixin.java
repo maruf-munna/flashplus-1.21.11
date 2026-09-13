@@ -23,14 +23,19 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import redsmods.flashplus.Flashplus;
 import redsmods.flashplus.FlashplusClient;
 import redsmods.flashplus.PanoramaScreenshotHelper;
 
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 @Mixin(value = ExportJob.class, remap = false)
 public abstract class ExportJobMixin {
@@ -43,6 +48,18 @@ public abstract class ExportJobMixin {
 
 	@Unique
 	private List<Map<String, Object>> flashPlus$trackedData;
+
+	@Unique
+	private List<Map<String, Object>> flashPlus$panoramaMetadataList;
+
+	@Unique
+	private List<Map<String, Object>> flashPlus$lightingMetadataList;
+
+	@Unique
+	private ExecutorService flashPlus$panoramaExecutor;
+
+	@Unique
+	private Path flashPlus$panoramaOutputDir;
 
 	@Unique
 	private Gson flashPlus$gson;
@@ -79,6 +96,36 @@ public abstract class ExportJobMixin {
 		this.flashPlus$gson = new GsonBuilder().setPrettyPrinting().create();
 		this.flashPlus$tick = 0;
 		this.flashPlus$previousFov = FlashplusClient.fov;
+
+		this.flashPlus$panoramaMetadataList = Collections.synchronizedList(new ArrayList<>());
+		this.flashPlus$lightingMetadataList = Collections.synchronizedList(new ArrayList<>());
+
+		boolean isSingleTickPanorama = FlashplusClient.takePanorama && settings.endTick() == settings.startTick();
+		boolean shouldCaptureAny = (FlashplusClient.exportLightingSh || FlashplusClient.panoramaExportEnabled) && !isSingleTickPanorama;
+
+		if (shouldCaptureAny) {
+			this.flashPlus$panoramaExecutor = Executors.newSingleThreadExecutor();
+			Path outputPath = this.settings.output();
+			Path parentFolder = outputPath.getParent();
+			String fileName = outputPath.getFileName().toString();
+			String nameWithoutExtension = fileName.contains(".")
+					? fileName.substring(0, fileName.lastIndexOf("."))
+					: fileName;
+
+			if (FlashplusClient.panoramaExportEnabled && (FlashplusClient.exportPanoramaExr || FlashplusClient.exportPanoramaHdr)) {
+				this.flashPlus$panoramaOutputDir = parentFolder.resolve(nameWithoutExtension + "_panoramas");
+				try {
+					Files.createDirectories(this.flashPlus$panoramaOutputDir);
+				} catch (IOException e) {
+					Flashplus.LOGGER.error("[FlashPlus] Failed to create panorama output directory: " + e.getMessage(), e);
+				}
+			} else {
+				this.flashPlus$panoramaOutputDir = null;
+			}
+		} else {
+			this.flashPlus$panoramaExecutor = null;
+			this.flashPlus$panoramaOutputDir = null;
+		}
 	}
 
 	/**
@@ -114,7 +161,91 @@ public abstract class ExportJobMixin {
 		if (FlashplusClient.etjson && !(FlashplusClient.takePanorama && settings.endTick() == settings.startTick())) {
 			flashPlus$captureEntityData(flashPlus$tick, partialClientTick);
 		}
+
+		boolean isSingleTickPanorama = FlashplusClient.takePanorama && settings.endTick() == settings.startTick();
+		if (!isSingleTickPanorama) {
+			boolean shouldCaptureLighting = FlashplusClient.exportLightingSh && (flashPlus$tick % Math.max(1, FlashplusClient.lightingIntervalTicks) == 0);
+			boolean shouldCapturePanorama = FlashplusClient.panoramaExportEnabled && (flashPlus$tick % Math.max(1, FlashplusClient.panoramaIntervalTicks) == 0);
+
+			if (shouldCaptureLighting || shouldCapturePanorama) {
+				flashPlus$triggerCapture(flashPlus$tick, shouldCaptureLighting, shouldCapturePanorama);
+			}
+		}
+
 		flashPlus$tick++;
+	}
+
+	@Unique
+	private void flashPlus$triggerCapture(int currentTick, boolean doLighting, boolean doPanorama) {
+		Minecraft mc = Minecraft.getInstance();
+		if (mc.player == null || mc.level == null) return;
+
+		long startNanos = System.nanoTime();
+
+		// Record raw Minecraft environment and lighting state from render thread
+		final Map<String, Object> rawLevelData = new LinkedHashMap<>();
+		try {
+			long gameTime = mc.level.getLevelData().getGameTime();
+			long timeOfDay = (gameTime % 24000L + 24000L) % 24000L;
+			rawLevelData.put("time", timeOfDay);
+			rawLevelData.put("game_time", gameTime);
+			rawLevelData.put("dimension", mc.level.dimension().identifier().toString());
+			rawLevelData.put("rain_level", mc.level.getRainLevel(1.0f));
+			rawLevelData.put("thunder_level", mc.level.getThunderLevel(1.0f));
+			rawLevelData.put("sky_darken", mc.level.getSkyDarken());
+
+			float celestialAngle = (float) timeOfDay / 24000.0f;
+			rawLevelData.put("celestial_angle", celestialAngle);
+			rawLevelData.put("sun_angle_deg", celestialAngle * 360.0f);
+			rawLevelData.put("is_day", timeOfDay < 12000L);
+			rawLevelData.put("has_skylight", mc.level.dimensionType().hasSkyLight());
+			rawLevelData.put("has_ceiling", mc.level.dimensionType().hasCeiling());
+			rawLevelData.put("ambient_light_level", mc.level.dimensionType().ambientLight());
+		} catch (Throwable t) {
+			Flashplus.LOGGER.warn("[FlashPlus] Could not read raw level environment data: " + t.getMessage());
+		}
+
+		File tempDir;
+		try {
+			tempDir = Files.createTempDirectory("flashplus_pano_tick_" + currentTick + "_").toFile();
+		} catch (IOException e) {
+			Flashplus.LOGGER.error("[FlashPlus] Failed to create temp dir for capture at tick " + currentTick, e);
+			return;
+		}
+
+		// Perform cubemap capture on render thread
+		PanoramaScreenshotHelper.capturePanoramaAtTick(mc, tempDir);
+
+		long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000L;
+		double frameBudgetMs = 1000.0 / Math.max(1.0, this.settings.framerate());
+		if (elapsedMs > frameBudgetMs) {
+			Flashplus.LOGGER.warn("[FlashPlus] Cubemap capture at tick {} took {}ms (frame budget: {}ms)",
+					currentTick, elapsedMs, String.format("%.2f", frameBudgetMs));
+		}
+
+		// Dispatch processing to background worker
+		if (this.flashPlus$panoramaExecutor != null) {
+			final Path outDir = this.flashPlus$panoramaOutputDir;
+			final boolean saveExr = doPanorama && FlashplusClient.exportPanoramaExr;
+			final boolean saveHdr = doPanorama && FlashplusClient.exportPanoramaHdr;
+			this.flashPlus$panoramaExecutor.submit(() -> {
+				try {
+					PanoramaScreenshotHelper.CaptureResult res = PanoramaScreenshotHelper.processCapture(
+							tempDir, outDir, currentTick, doLighting, saveExr, saveHdr, 4096, 2048, rawLevelData
+					);
+					if (res != null) {
+						if (res.lightingMetadata != null) {
+							flashPlus$lightingMetadataList.add(res.lightingMetadata);
+						}
+						if (res.panoramaMetadata != null) {
+							flashPlus$panoramaMetadataList.add(res.panoramaMetadata);
+						}
+					}
+				} catch (Throwable t) {
+					Flashplus.LOGGER.error("[FlashPlus] Error in background capture processing for tick " + currentTick, t);
+				}
+			});
+		}
 	}
 
 	/**
@@ -170,6 +301,76 @@ public abstract class ExportJobMixin {
 				e.printStackTrace();
 			}
 		}
+
+		// Wait for all capture tasks if enabled
+		if (this.flashPlus$panoramaExecutor != null) {
+			this.flashPlus$panoramaExecutor.shutdown();
+			try {
+				if (!this.flashPlus$panoramaExecutor.awaitTermination(10, TimeUnit.MINUTES)) {
+					Flashplus.LOGGER.error("[FlashPlus] Timed out waiting for capture export tasks to complete");
+				}
+			} catch (InterruptedException e) {
+				Flashplus.LOGGER.error("[FlashPlus] Interrupted while waiting for capture export tasks", e);
+			}
+
+			// Sort metadata by tick
+			this.flashPlus$panoramaMetadataList.sort(Comparator.comparingInt(m -> (int) m.get("tick")));
+			this.flashPlus$lightingMetadataList.sort(Comparator.comparingInt(m -> (int) m.get("tick")));
+
+			// Write companion panoramas.json in output directory and basePath + "HDRI.json"
+			if (!this.flashPlus$panoramaMetadataList.isEmpty()) {
+				Map<String, Object> panoramaJsonMap = Map.of("panoramas", this.flashPlus$panoramaMetadataList);
+
+				// 1. Inside the panoramas folder
+				if (this.flashPlus$panoramaOutputDir != null) {
+					Path panoramasJsonPath = this.flashPlus$panoramaOutputDir.resolve("panoramas.json");
+					try (FileWriter writer = new FileWriter(panoramasJsonPath.toFile())) {
+						flashPlus$gson.toJson(panoramaJsonMap, writer);
+						System.out.println("[FlashPlus] Panorama metadata exported to " + panoramasJsonPath);
+					} catch (IOException e) {
+						System.err.println("[FlashPlus] Failed to write panorama metadata to folder:");
+						e.printStackTrace();
+					}
+				}
+
+				// 2. Alongside camera JSON as basePath + "HDRI.json"
+				Path hdriJsonPath = Path.of(basePath + "HDRI.json");
+				try (FileWriter writer = new FileWriter(hdriJsonPath.toFile())) {
+					flashPlus$gson.toJson(panoramaJsonMap, writer);
+					System.out.println("[FlashPlus] Panorama metadata exported to " + hdriJsonPath);
+				} catch (IOException e) {
+					System.err.println("[FlashPlus] Failed to write HDRI metadata:");
+					e.printStackTrace();
+				}
+			}
+
+			// Write lighting JSON if SH data was captured
+			if (!this.flashPlus$lightingMetadataList.isEmpty()) {
+				Map<String, Object> lightingJsonMap = Map.of("frames", this.flashPlus$lightingMetadataList);
+
+				// 1. Alongside camera JSON as basePath + "Lighting.json"
+				Path baseLightingJsonPath = Path.of(basePath + "Lighting.json");
+				try (FileWriter writer = new FileWriter(baseLightingJsonPath.toFile())) {
+					flashPlus$gson.toJson(lightingJsonMap, writer);
+					System.out.println("[FlashPlus] Lighting metadata exported to " + baseLightingJsonPath);
+				} catch (IOException e) {
+					System.err.println("[FlashPlus] Failed to write Lighting.json alongside video:");
+					e.printStackTrace();
+				}
+
+				// 2. Inside the panoramas folder if it exists: lighting.json
+				if (this.flashPlus$panoramaOutputDir != null && Files.exists(this.flashPlus$panoramaOutputDir)) {
+					Path lightingJsonPath = this.flashPlus$panoramaOutputDir.resolve("lighting.json");
+					try (FileWriter writer = new FileWriter(lightingJsonPath.toFile())) {
+						flashPlus$gson.toJson(lightingJsonMap, writer);
+						System.out.println("[FlashPlus] Lighting metadata exported to " + lightingJsonPath);
+					} catch (IOException e) {
+						System.err.println("[FlashPlus] Failed to write lighting.json to folder:");
+						e.printStackTrace();
+					}
+				}
+			}
+		}
 	}
 
 	@Unique
@@ -209,7 +410,7 @@ public abstract class ExportJobMixin {
 		float interpolatedFov = (float) (keyframeStartFov + (targetFov - keyframeStartFov) * partialClientTick);
 
 		keyframeData.put("fov", keyframeEndFov);
-        keyframeData.put("time", Minecraft.getInstance().level.getGameTime() % 24000);
+        keyframeData.put("time", Minecraft.getInstance().level.getLevelData().getGameTime() % 24000);
 
 		flashPlus$allCameraKeyframes.add(keyframeData);
 

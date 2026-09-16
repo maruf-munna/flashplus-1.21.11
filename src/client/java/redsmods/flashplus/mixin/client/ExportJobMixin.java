@@ -18,11 +18,13 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Mutable;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.gen.Invoker;
 import redsmods.flashplus.Flashplus;
 import redsmods.flashplus.FlashplusClient;
 import redsmods.flashplus.live.LiveMotionSampler;
@@ -36,8 +38,10 @@ import java.util.*;
 @Mixin(value = ExportJob.class, remap = false)
 public abstract class ExportJobMixin {
 
-	@Shadow @Final private ExportSettings settings;
+	@Shadow @Final @Mutable private ExportSettings settings;
 	@Shadow private double currentTickDouble;
+	@Invoker("setServerTickAndWait")
+	abstract void flashPlus$setServerTickAndWait(ReplayServer replayServer, int tick, boolean force);
 
 	@Unique
 	private List<Map<String, Object>> flashPlus$allCameraKeyframes;
@@ -59,9 +63,59 @@ public abstract class ExportJobMixin {
 	private boolean entityTracking = true;
 	private int flashPlus$tick = 0;
 
+	@Unique
+	private boolean flashPlus$wallClockSyncReady;
+
 	/**
 	 * Initialize data structures at the start of doExport, right after renderStartTime is set
 	 */
+	@Inject(
+			method = "doExport",
+			at = @At(
+					value = "INVOKE",
+					target = "Lcom/moulberry/flashback/exporting/ExportJob;setup(Lcom/moulberry/flashback/playback/ReplayServer;)V",
+					shift = At.Shift.AFTER
+			),
+			remap = false
+	)
+	private void flashPlus$trimToWallClockOverlap(
+			VideoWriter videoWriter,
+			SaveableFramebufferQueue downloader,
+			CallbackInfo ci) {
+		if (!FlashplusClient.useImportedCameraPath || FlashplusClient.importedLiveMotionData == null) {
+			return;
+		}
+
+		if (!FlashplusClient.importedLiveMotionData.hasWallClockTiming()) {
+			FlashplusClient.importedCameraStatus = "This older camera JSON has no epoch_millis timing; re-record it to auto-sync.";
+			return;
+		}
+
+		ReplayServer replayServer = Flashback.getReplayServer();
+		if (replayServer == null || !replayServer.hasRtcData()) {
+			FlashplusClient.importedCameraStatus = "Flashback replay has no real-time clock data; cannot auto-sync this export.";
+			return;
+		}
+
+		int first = flashPlus$findFirstTickAtOrAfter(replayServer,
+				FlashplusClient.importedLiveMotionData.firstEpochMillis());
+		int afterLast = flashPlus$findFirstTickAfter(replayServer,
+				FlashplusClient.importedLiveMotionData.lastEpochMillis());
+		int syncedStart = Math.max(this.settings.startTick(), first);
+		int syncedEnd = afterLast < 0 ? this.settings.endTick() : Math.min(this.settings.endTick(), afterLast - 1);
+
+		if (first < 0 || syncedEnd <= syncedStart) {
+			FlashplusClient.importedCameraStatus = "No wall-clock overlap between this camera JSON and the selected export range.";
+			FlashplusClient.useImportedCameraPath = false;
+			return;
+		}
+
+		this.settings = flashPlus$withTickRange(this.settings, syncedStart, syncedEnd);
+		this.flashPlus$wallClockSyncReady = true;
+		FlashplusClient.importedCameraStatus = "Auto-synced by System.currentTimeMillis: exporting the shared "
+				+ syncedStart + "-" + syncedEnd + " tick range.";
+	}
+
 	@Inject(
 			method = "doExport",
 			at = @At(
@@ -139,13 +193,11 @@ public abstract class ExportJobMixin {
 			VideoWriter videoWriter,
 			SaveableFramebufferQueue downloader,
 			CallbackInfo ci) {
-		if (FlashplusClient.useImportedCameraPath && FlashplusClient.importedLiveMotionSampler != null) {
-			double currentReplayTick = this.settings.startTick() + this.currentTickDouble;
-			double startTick = this.settings.startTick() + FlashplusClient.importedCameraTickOffset;
-			double elapsedTicks = currentReplayTick - startTick;
-			double elapsedSeconds = Math.max(0.0, elapsedTicks / 20.0);
-
-			LiveMotionSampler.SampledPose pose = FlashplusClient.importedLiveMotionSampler.sampleAtSeconds(elapsedSeconds);
+		if (FlashplusClient.useImportedCameraPath && FlashplusClient.importedLiveMotionSampler != null
+				&& this.flashPlus$wallClockSyncReady) {
+			ReplayServer replayServer = Flashback.getReplayServer();
+			double epochMillis = flashPlus$getExportEpochMillis(replayServer);
+			LiveMotionSampler.SampledPose pose = FlashplusClient.importedLiveMotionSampler.sampleAtEpochMillis(epochMillis);
 			FlashplusClient.currentExportPose = pose;
 
 			if (pose != null) {
@@ -153,13 +205,67 @@ public abstract class ExportJobMixin {
 					this.settings.editorState().replayVisuals.overrideFov = true;
 					this.settings.editorState().replayVisuals.overrideFovAmount = pose.fov();
 				}
-				if (FlashplusClient.importedCameraOverrideTime) {
-					this.settings.editorState().replayVisuals.overrideTimeOfDay = (long) pose.worldTime();
-				}
 			}
 		} else {
 			FlashplusClient.currentExportPose = null;
 		}
+	}
+
+	@Unique
+	private int flashPlus$findFirstTickAtOrAfter(ReplayServer replayServer, long epochMillis) {
+		int low = this.settings.startTick();
+		int high = this.settings.endTick();
+		int result = -1;
+		while (low <= high) {
+			int middle = low + (high - low) / 2;
+			this.flashPlus$setServerTickAndWait(replayServer, middle, true);
+			if (replayServer.getInterpolatedRtc() >= epochMillis) {
+				result = middle;
+				high = middle - 1;
+			} else {
+				low = middle + 1;
+			}
+		}
+		return result;
+	}
+
+	@Unique
+	private int flashPlus$findFirstTickAfter(ReplayServer replayServer, long epochMillis) {
+		int low = this.settings.startTick();
+		int high = this.settings.endTick();
+		int result = -1;
+		while (low <= high) {
+			int middle = low + (high - low) / 2;
+			this.flashPlus$setServerTickAndWait(replayServer, middle, true);
+			if (replayServer.getInterpolatedRtc() > epochMillis) {
+				result = middle;
+				high = middle - 1;
+			} else {
+				low = middle + 1;
+			}
+		}
+		return result;
+	}
+
+	@Unique
+	private double flashPlus$getExportEpochMillis(ReplayServer replayServer) {
+		if (replayServer == null) {
+			return Double.NaN;
+		}
+		// Flashback stores the real-time clock at 20 TPS. The exporter supplies the exact
+		// fractional frame position, so interpolate that clock to keep 60 FPS camera motion.
+		double fraction = this.currentTickDouble - Math.floor(this.currentTickDouble);
+		return replayServer.getInterpolatedRtc() + fraction * 50.0;
+	}
+
+	@Unique
+	private static ExportSettings flashPlus$withTickRange(ExportSettings settings, int startTick, int endTick) {
+		return new ExportSettings(settings.name(), settings.editorState(), settings.initialCameraPosition(),
+				settings.initialCameraYaw(), settings.initialCameraPitch(), settings.resolutionX(), settings.resolutionY(),
+				startTick, endTick, settings.projection(), settings.orthographicZoom(), settings.framerate(),
+				settings.resetRng(), settings.depthMap(), settings.container(), settings.codec(), settings.encoder(),
+				settings.bitrate(), settings.transparent(), settings.ssaa(), settings.noGui(), settings.stereoAudio(),
+				settings.audioCodec(), settings.output(), settings.pngSequenceFormat());
 	}
 
 	@Inject(method = "doExport", at = @At("RETURN"), remap = false)

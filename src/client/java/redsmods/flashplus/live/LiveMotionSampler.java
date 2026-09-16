@@ -81,31 +81,65 @@ public final class LiveMotionSampler {
         // LERP position
         Vec3 pos = p0.position().lerp(p1.position(), alpha);
 
-        // LERP FOV & time
+        // LERP FOV
         float fov = (float) (p0.fov() + (p1.fov() - p0.fov()) * alpha);
-        double worldTime = p0.worldTime() + (p1.worldTime() - p0.worldTime()) * alpha;
 
-        return createPose(pos, rot, fov, worldTime);
+        return createPose(pos, rot, fov);
+    }
+
+    /** Samples against Flashback's replayed real-time clock (System.currentTimeMillis). */
+    public synchronized SampledPose sampleAtEpochMillis(double epochMillis) {
+        if (!data.hasWallClockTiming()) {
+            return null;
+        }
+
+        List<LiveMotionData.LiveMotionPoint> points = data.frames();
+        if (epochMillis < points.getFirst().epochMillis() || epochMillis > points.getLast().epochMillis()) {
+            return null;
+        }
+
+        int low = 0;
+        int high = points.size() - 1;
+        while (low + 1 < high) {
+            int middle = (low + high) >>> 1;
+            if (points.get(middle).epochMillis() <= epochMillis) {
+                low = middle;
+            } else {
+                high = middle;
+            }
+        }
+
+        LiveMotionData.LiveMotionPoint first = points.get(low);
+        LiveMotionData.LiveMotionPoint second = points.get(high);
+        double span = second.epochMillis() - first.epochMillis();
+        if (span <= 0.0) {
+            return toPose(first);
+        }
+
+        float alpha = (float) Math.clamp((epochMillis - first.epochMillis()) / span, 0.0, 1.0);
+        Quaternionf rotation = new Quaternionf(first.rotation()).slerp(second.rotation(), alpha);
+        Vec3 position = first.position().lerp(second.position(), alpha);
+        float fov = (float) (first.fov() + (second.fov() - first.fov()) * alpha);
+        return createPose(position, rotation, fov);
     }
 
     private static SampledPose toPose(LiveMotionData.LiveMotionPoint p) {
-        return createPose(p.position(), new Quaternionf(p.rotation()), p.fov(), p.worldTime());
+        return createPose(p.position(), new Quaternionf(p.rotation()), p.fov());
     }
 
-    private static SampledPose createPose(Vec3 pos, Quaternionf rot, float fov, double worldTime) {
+    private static SampledPose createPose(Vec3 pos, Quaternionf rot, float fov) {
         // Forward vector (0, 0, -1) transformed by rotation
         Vector3f forward = new Vector3f(0.0f, 0.0f, -1.0f).rotate(rot);
         float pitch = (float) Math.toDegrees(Math.asin(-Math.clamp(forward.y, -1.0f, 1.0f)));
         float yaw = (float) Math.toDegrees(Math.atan2(-forward.x, forward.z));
 
-        return new SampledPose(pos, rot, fov, worldTime, yaw, pitch);
+        return new SampledPose(pos, rot, fov, yaw, pitch);
     }
 
     public record SampledPose(
             Vec3 position,
             Quaternionf rotation,
             float fov,
-            double worldTime,
             float yaw,
             float pitch
     ) {

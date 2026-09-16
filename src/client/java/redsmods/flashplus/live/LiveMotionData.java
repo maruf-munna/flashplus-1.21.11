@@ -24,7 +24,7 @@ public record LiveMotionData(
         int version,
         int fps,
         double durationSeconds,
-        Double startReplayTick,
+        Long startEpochMillis,
         List<LiveMotionPoint> frames,
         Path filePath
 ) {
@@ -44,7 +44,7 @@ public record LiveMotionData(
             int version = root.has("version") ? root.get("version").getAsInt() : 1;
             int fps = root.has("fps") ? root.get("fps").getAsInt() : 60;
             double durationSeconds = root.has("duration_seconds") ? root.get("duration_seconds").getAsDouble() : 0.0;
-            Double startReplayTick = root.has("start_replay_tick") ? root.get("start_replay_tick").getAsDouble() : null;
+            Long startEpochMillis = root.has("start_epoch_millis") ? root.get("start_epoch_millis").getAsLong() : null;
 
             JsonArray keyframesArray = null;
             if (root.has("keyframes") && root.get("keyframes").isJsonArray()) {
@@ -64,7 +64,7 @@ public record LiveMotionData(
 
                 long tick = kf.has("tick") ? kf.get("tick").getAsLong() : points.size();
                 double timestamp = kf.has("timestamp") ? kf.get("timestamp").getAsDouble() : (double) tick / (fps > 0 ? fps : 60);
-                Double replayTick = kf.has("replay_tick") ? kf.get("replay_tick").getAsDouble() : null;
+                Long epochMillis = kf.has("epoch_millis") ? kf.get("epoch_millis").getAsLong() : null;
 
                 double x = 0.0, y = 0.0, z = 0.0;
                 if (kf.has("position") && kf.get("position").isJsonArray()) {
@@ -85,16 +85,13 @@ public record LiveMotionData(
                 rot.normalize();
 
                 float fov = kf.has("fov") ? kf.get("fov").getAsFloat() : 70.0f;
-                double worldTime = kf.has("time") ? kf.get("time").getAsDouble() : 0.0;
-
                 points.add(new LiveMotionPoint(
                         timestamp,
                         tick,
-                        replayTick,
+                        epochMillis,
                         new Vec3(x, y, z),
                         rot,
-                        fov,
-                        worldTime
+                        fov
                 ));
             }
 
@@ -111,7 +108,7 @@ public record LiveMotionData(
                     version,
                     fps,
                     durationSeconds,
-                    startReplayTick,
+                    startEpochMillis,
                     Collections.unmodifiableList(points),
                     path
             );
@@ -121,11 +118,40 @@ public record LiveMotionData(
     public record LiveMotionPoint(
             double timestamp,
             long tick,
-            Double replayTick,
+            Long epochMillis,
             Vec3 position,
             Quaternionf rotation,
-            float fov,
-            double worldTime
+            float fov
     ) {
+    }
+
+    /** True only when every frame has a System.currentTimeMillis timestamp. */
+    public boolean hasWallClockTiming() {
+        if (frames.size() < 2 || frames.getFirst().epochMillis() == null || frames.getLast().epochMillis() == null) {
+            return false;
+        }
+
+        long previous = Long.MIN_VALUE;
+        for (LiveMotionPoint point : frames) {
+            if (point.epochMillis() == null || point.epochMillis() < previous) {
+                return false;
+            }
+            previous = point.epochMillis();
+        }
+        return true;
+    }
+
+    public long firstEpochMillis() {
+        if (!hasWallClockTiming()) {
+            throw new IllegalStateException("This camera file has no wall-clock timing.");
+        }
+        return frames.getFirst().epochMillis();
+    }
+
+    public long lastEpochMillis() {
+        if (!hasWallClockTiming()) {
+            throw new IllegalStateException("This camera file has no wall-clock timing.");
+        }
+        return frames.getLast().epochMillis();
     }
 }

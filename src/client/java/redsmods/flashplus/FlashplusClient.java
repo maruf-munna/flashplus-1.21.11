@@ -34,9 +34,7 @@ public class FlashplusClient implements ClientModInitializer {
 	public static LiveMotionData importedLiveMotionData = null;
 	public static LiveMotionSampler importedLiveMotionSampler = null;
 	public static String importedCameraStatus = "No file loaded";
-	public static double importedCameraTickOffset = 0.0;
 	public static boolean importedCameraOverrideFov = true;
-	public static boolean importedCameraOverrideTime = false;
 	public static volatile LiveMotionSampler.SampledPose currentExportPose = null;
 
 	public static boolean loadImportedCameraJson(Path path) {
@@ -45,8 +43,11 @@ public class FlashplusClient implements ClientModInitializer {
 			importedLiveMotionData = data;
 			importedLiveMotionSampler = new LiveMotionSampler(data);
 			importedCameraJsonPath = path.toAbsolutePath().toString();
-			importedCameraStatus = String.format("Loaded %d frames (%.2fs @ %d FPS)",
-					data.frames().size(), data.durationSeconds(), data.fps());
+			importedCameraStatus = data.hasWallClockTiming()
+					? String.format("Loaded %d frames (%.2fs @ %d FPS, System-time sync ready)",
+							data.frames().size(), data.durationSeconds(), data.fps())
+					: String.format("Loaded %d frames, but this older JSON has no System-time timing.",
+							data.frames().size());
 			Flashplus.LOGGER.info("[FlashPlus] Successfully loaded camera data: {}", importedCameraStatus);
 			return true;
 		} catch (Exception e) {

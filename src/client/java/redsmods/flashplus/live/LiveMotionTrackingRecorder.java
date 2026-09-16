@@ -130,14 +130,10 @@ public final class LiveMotionTrackingRecorder {
             rotation.set(FlashplusClient.quaternion);
         }
         double elapsedSeconds = Math.max(0.0, (capturedAtNanos - startedAtNanos) / 1_000_000_000.0);
-        double worldTime = minecraft.level.getLevelData().getGameTime() % 24000L;
+        long epochMillis = System.currentTimeMillis();
 
-        Double replayTick = null;
-        if (Flashback.getReplayServer() != null) {
-            replayTick = Flashback.getReplayServer().getPartialReplayTick();
-        }
-
-        rawFrames.add(new RawFrame(elapsedSeconds, position.x, position.y, position.z, rotation, camera.getFov(), worldTime, replayTick));
+        rawFrames.add(new RawFrame(elapsedSeconds, epochMillis, position.x, position.y, position.z,
+                rotation, camera.getFov()));
         lastRawCaptureNanos = capturedAtNanos;
     }
 
@@ -168,7 +164,7 @@ public final class LiveMotionTrackingRecorder {
 
     private static void writeResampledJson(Path path, List<RawFrame> rawFrames, int fps, double durationSeconds) throws IOException {
         long finalFrameIndex = Math.max(0L, (long) Math.ceil(durationSeconds * fps));
-        Double startReplayTick = rawFrames.isEmpty() ? null : rawFrames.getFirst().replayTick();
+        long startEpochMillis = rawFrames.getFirst().epochMillis();
 
         try (Writer fileWriter = Files.newBufferedWriter(path, StandardCharsets.UTF_8);
              JsonWriter writer = new JsonWriter(fileWriter)) {
@@ -178,9 +174,7 @@ public final class LiveMotionTrackingRecorder {
             writer.name("version").value(1);
             writer.name("fps").value(fps);
             writer.name("duration_seconds").value(durationSeconds);
-            if (startReplayTick != null) {
-                writer.name("start_replay_tick").value(startReplayTick);
-            }
+            writer.name("start_epoch_millis").value(startEpochMillis);
             writer.name("keyframes").beginArray();
 
             int lowerIndex = 0;
@@ -213,22 +207,14 @@ public final class LiveMotionTrackingRecorder {
         float amount = (float) Math.clamp((timestamp - lower.elapsedSeconds()) / span, 0.0, 1.0);
         Quaternionf rotation = new Quaternionf(lower.rotation()).slerp(upper.rotation(), amount);
 
-        Double replayTick = null;
-        if (lower.replayTick() != null && upper.replayTick() != null) {
-            replayTick = lerp(lower.replayTick(), upper.replayTick(), amount);
-        } else if (lower.replayTick() != null) {
-            replayTick = lower.replayTick();
-        }
-
         return new RawFrame(
                 timestamp,
+                Math.round(lerp(lower.epochMillis(), upper.epochMillis(), amount)),
                 lerp(lower.x(), upper.x(), amount),
                 lerp(lower.y(), upper.y(), amount),
                 lerp(lower.z(), upper.z(), amount),
                 rotation,
-                (float) lerp(lower.fov(), upper.fov(), amount),
-                lerp(lower.worldTime(), upper.worldTime(), amount),
-                replayTick
+                (float) lerp(lower.fov(), upper.fov(), amount)
         );
     }
 
@@ -246,10 +232,7 @@ public final class LiveMotionTrackingRecorder {
         writer.name("y").value(frame.rotation().y);
         writer.name("z").value(frame.rotation().z);
         writer.name("fov").value(frame.fov());
-        writer.name("time").value(frame.worldTime());
-        if (frame.replayTick() != null) {
-            writer.name("replay_tick").value(frame.replayTick());
-        }
+        writer.name("epoch_millis").value(frame.epochMillis());
         writer.endObject();
     }
 
@@ -272,8 +255,8 @@ public final class LiveMotionTrackingRecorder {
         });
     }
 
-    private record RawFrame(double elapsedSeconds, double x, double y, double z, Quaternionf rotation,
-                            float fov, double worldTime, Double replayTick) {
+    private record RawFrame(double elapsedSeconds, long epochMillis, double x, double y, double z,
+                            Quaternionf rotation, float fov) {
     }
 
     public record Result(boolean success, String message) {

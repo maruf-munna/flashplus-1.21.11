@@ -1,6 +1,8 @@
 package redsmods.flashplus;
 
 import net.fabricmc.api.ClientModInitializer;
+import redsmods.flashplus.live.LiveMotionTrackingCommands;
+import redsmods.flashplus.live.LiveMotionTrackingConfig;
 import org.joml.Quaternionf;
 
 import java.util.ArrayList;
@@ -29,6 +31,7 @@ public class FlashplusClient implements ClientModInitializer {
 
 	@Override
 	public void onInitializeClient() {
-		// This entrypoint is suitable for setting up client-specific logic, such as rendering.
+		LiveMotionTrackingConfig.load();
+		LiveMotionTrackingCommands.register();
 	}
 }

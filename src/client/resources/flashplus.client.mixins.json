@@ -8,6 +8,7 @@
 		"keyframes.FOVKeyframeMixin",
 		"keyframes.MinecraftKeyframeHandlerMixin",
 		"keyframes.CameraRotationMixin",
+		"LiveMotionTrackingRenderMixin",
 		"Window.StartExportWindowMixin",
 		"Window.MovementWindowMixin",
 		"ReplayUIRollMixin"

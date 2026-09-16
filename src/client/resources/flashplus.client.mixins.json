@@ -4,6 +4,7 @@
 	"compatibilityLevel": "JAVA_21",
 	"client": [
 		"ExportJobMixin",
+		"CameraImportOverrideMixin",
 		"Window.SelectedEntityPopupMixin",
 		"keyframes.FOVKeyframeMixin",
 		"keyframes.MinecraftKeyframeHandlerMixin",

@@ -1,5 +1,6 @@
 package redsmods.flashplus.mixin.client.keyframes;
 
+import com.moulberry.flashback.Flashback;
 import com.moulberry.flashback.keyframe.handler.MinecraftKeyframeHandler;
 import org.joml.Vector3d;
 import org.spongepowered.asm.mixin.Mixin;
@@ -10,6 +11,14 @@ import redsmods.flashplus.FlashplusClient;
 
 @Mixin(MinecraftKeyframeHandler.class)
 public class MinecraftKeyframeHandlerMixin {
+
+    @Inject(method = "applyCameraPosition", at = @At("HEAD"), cancellable = true)
+    private void suppressCameraPositionIfImported(Vector3d position, double yaw, double pitch, double roll, CallbackInfo ci) {
+        if (Flashback.isExporting() && FlashplusClient.useImportedCameraPath) {
+            ci.cancel();
+        }
+    }
+
     @Inject(method = "applyCameraPosition", at = @At("RETURN"))
     private void injectSaveRoll(Vector3d position, double yaw, double pitch, double roll, CallbackInfo ci) {
         if (roll > -0.01 && roll < 0.01) {

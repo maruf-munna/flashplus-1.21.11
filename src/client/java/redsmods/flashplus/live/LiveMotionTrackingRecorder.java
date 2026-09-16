@@ -13,8 +13,8 @@ import redsmods.flashplus.FlashplusClient;
 import java.io.IOException;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
@@ -131,7 +131,13 @@ public final class LiveMotionTrackingRecorder {
         }
         double elapsedSeconds = Math.max(0.0, (capturedAtNanos - startedAtNanos) / 1_000_000_000.0);
         double worldTime = minecraft.level.getLevelData().getGameTime() % 24000L;
-        rawFrames.add(new RawFrame(elapsedSeconds, position.x, position.y, position.z, rotation, camera.getFov(), worldTime));
+
+        Double replayTick = null;
+        if (Flashback.getReplayServer() != null) {
+            replayTick = Flashback.getReplayServer().getPartialReplayTick();
+        }
+
+        rawFrames.add(new RawFrame(elapsedSeconds, position.x, position.y, position.z, rotation, camera.getFov(), worldTime, replayTick));
         lastRawCaptureNanos = capturedAtNanos;
     }
 
@@ -162,6 +168,8 @@ public final class LiveMotionTrackingRecorder {
 
     private static void writeResampledJson(Path path, List<RawFrame> rawFrames, int fps, double durationSeconds) throws IOException {
         long finalFrameIndex = Math.max(0L, (long) Math.ceil(durationSeconds * fps));
+        Double startReplayTick = rawFrames.isEmpty() ? null : rawFrames.getFirst().replayTick();
+
         try (Writer fileWriter = Files.newBufferedWriter(path, StandardCharsets.UTF_8);
              JsonWriter writer = new JsonWriter(fileWriter)) {
             writer.setIndent("  ");
@@ -170,6 +178,9 @@ public final class LiveMotionTrackingRecorder {
             writer.name("version").value(1);
             writer.name("fps").value(fps);
             writer.name("duration_seconds").value(durationSeconds);
+            if (startReplayTick != null) {
+                writer.name("start_replay_tick").value(startReplayTick);
+            }
             writer.name("keyframes").beginArray();
 
             int lowerIndex = 0;
@@ -201,6 +212,14 @@ public final class LiveMotionTrackingRecorder {
         }
         float amount = (float) Math.clamp((timestamp - lower.elapsedSeconds()) / span, 0.0, 1.0);
         Quaternionf rotation = new Quaternionf(lower.rotation()).slerp(upper.rotation(), amount);
+
+        Double replayTick = null;
+        if (lower.replayTick() != null && upper.replayTick() != null) {
+            replayTick = lerp(lower.replayTick(), upper.replayTick(), amount);
+        } else if (lower.replayTick() != null) {
+            replayTick = lower.replayTick();
+        }
+
         return new RawFrame(
                 timestamp,
                 lerp(lower.x(), upper.x(), amount),
@@ -208,7 +227,8 @@ public final class LiveMotionTrackingRecorder {
                 lerp(lower.z(), upper.z(), amount),
                 rotation,
                 (float) lerp(lower.fov(), upper.fov(), amount),
-                lerp(lower.worldTime(), upper.worldTime(), amount)
+                lerp(lower.worldTime(), upper.worldTime(), amount),
+                replayTick
         );
     }
 
@@ -227,6 +247,9 @@ public final class LiveMotionTrackingRecorder {
         writer.name("z").value(frame.rotation().z);
         writer.name("fov").value(frame.fov());
         writer.name("time").value(frame.worldTime());
+        if (frame.replayTick() != null) {
+            writer.name("replay_tick").value(frame.replayTick());
+        }
         writer.endObject();
     }
 
@@ -250,7 +273,7 @@ public final class LiveMotionTrackingRecorder {
     }
 
     private record RawFrame(double elapsedSeconds, double x, double y, double z, Quaternionf rotation,
-                            float fov, double worldTime) {
+                            float fov, double worldTime, Double replayTick) {
     }
 
     public record Result(boolean success, String message) {

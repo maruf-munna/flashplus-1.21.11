@@ -2,13 +2,19 @@ package redsmods.flashplus.mixin.client.Window;
 
 import com.moulberry.flashback.editor.ui.ImGuiHelper;
 import com.moulberry.flashback.editor.ui.windows.StartExportWindow;
+import com.moulberry.flashback.exporting.AsyncFileDialogs;
 import imgui.moulberry90.ImGui;
+import imgui.moulberry90.type.ImFloat;
 import imgui.moulberry90.type.ImInt;
+import net.minecraft.client.Minecraft;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import redsmods.flashplus.FlashplusClient;
+
+import java.nio.file.Path;
 
 import static redsmods.flashplus.FlashplusClient.*;
 
@@ -18,6 +24,10 @@ public class StartExportWindowMixin {
     private static final ImInt flashPlus$lightingInterval = new ImInt(lightingIntervalTicks);
     @Unique
     private static final ImInt flashPlus$lightingMultiplier = new ImInt(lightingMultiplier);
+    @Unique
+    private static final ImFloat flashPlus$tickOffset = new ImFloat((float) importedCameraTickOffset);
+    @Unique
+    private static String flashPlus$lastCameraDirectory = "C:\\tmp";
 
     @Inject(
             method = "render",
@@ -30,7 +40,57 @@ public class StartExportWindowMixin {
             remap = false
     )
     private static void renderFlashplusOptions(CallbackInfo ci) {
-        ImGuiHelper.separatorWithText("Flashplus Options");
+        ImGuiHelper.separatorWithText("Flashplus Camera Path");
+
+        if (ImGui.radioButton("Flashback Keyframes", !useImportedCameraPath)) {
+            useImportedCameraPath = false;
+        }
+        ImGui.sameLine();
+        if (ImGui.radioButton("Recorded Camera Path", useImportedCameraPath)) {
+            useImportedCameraPath = true;
+        }
+
+        if (useImportedCameraPath) {
+            if (ImGui.button("Browse Recorded Camera JSON...")) {
+                AsyncFileDialogs.openFileDialog(flashPlus$lastCameraDirectory, "Recorded Camera JSON", "json")
+                        .thenAccept(selectedPath -> {
+                    if (selectedPath != null && !selectedPath.isBlank()) {
+                        Path selectedFile = Path.of(selectedPath).toAbsolutePath().normalize();
+                        Path parentDirectory = selectedFile.getParent();
+                        if (parentDirectory != null) {
+                            flashPlus$lastCameraDirectory = parentDirectory.toString();
+                        }
+                        Minecraft.getInstance().execute(() -> FlashplusClient.loadImportedCameraJson(selectedFile));
+                    }
+                });
+            }
+
+            if (importedLiveMotionData != null) {
+                ImGui.textColored(0.2f, 1.0f, 0.2f, 1.0f, importedCameraStatus);
+                ImGui.textWrapped("File: " + importedCameraJsonPath);
+            } else {
+                ImGui.textColored(1.0f, 0.4f, 0.4f, 1.0f, importedCameraStatus);
+            }
+
+            flashPlus$tickOffset.set((float) importedCameraTickOffset);
+            if (ImGui.inputFloat("Start Tick Offset", flashPlus$tickOffset, 1.0f, 20.0f, "%.2f")) {
+                importedCameraTickOffset = flashPlus$tickOffset.get();
+            }
+            ImGuiHelper.tooltip("Offset in replay ticks relative to the export start tick (default 0: recording starts at export start tick)");
+
+            if (ImGui.checkbox("Override FOV from Recording", importedCameraOverrideFov)) {
+                importedCameraOverrideFov = !importedCameraOverrideFov;
+            }
+
+            ImGui.sameLine();
+
+            if (ImGui.checkbox("Override World Time", importedCameraOverrideTime)) {
+                importedCameraOverrideTime = !importedCameraOverrideTime;
+            }
+            ImGuiHelper.tooltip("Sync replay world time with the recorded camera time");
+        }
+
+        ImGuiHelper.separatorWithText("Flashplus Export Options");
 
         if (ImGui.checkbox("Camera Track", cjson)) {
             cjson = !cjson;

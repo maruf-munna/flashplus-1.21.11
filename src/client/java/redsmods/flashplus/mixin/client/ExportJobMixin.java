@@ -25,6 +25,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import redsmods.flashplus.Flashplus;
 import redsmods.flashplus.FlashplusClient;
+import redsmods.flashplus.live.LiveMotionSampler;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -123,6 +124,50 @@ public abstract class ExportJobMixin {
 		}
 
 		flashPlus$tick++;
+	}
+
+	@Inject(
+			method = "doExport",
+			at = @At(
+					value = "INVOKE",
+					target = "Lcom/moulberry/flashback/exporting/ExportJob;render(Lcom/mojang/blaze3d/pipeline/RenderTarget;Lnet/minecraft/client/DeltaTracker$Timer;)V",
+					shift = At.Shift.BEFORE
+			),
+			remap = false
+	)
+	private void flashPlus$prepareImportedCameraBeforeRender(
+			VideoWriter videoWriter,
+			SaveableFramebufferQueue downloader,
+			CallbackInfo ci) {
+		if (FlashplusClient.useImportedCameraPath && FlashplusClient.importedLiveMotionSampler != null) {
+			double currentReplayTick = this.settings.startTick() + this.currentTickDouble;
+			double startTick = this.settings.startTick() + FlashplusClient.importedCameraTickOffset;
+			double elapsedTicks = currentReplayTick - startTick;
+			double elapsedSeconds = Math.max(0.0, elapsedTicks / 20.0);
+
+			LiveMotionSampler.SampledPose pose = FlashplusClient.importedLiveMotionSampler.sampleAtSeconds(elapsedSeconds);
+			FlashplusClient.currentExportPose = pose;
+
+			if (pose != null) {
+				if (FlashplusClient.importedCameraOverrideFov) {
+					this.settings.editorState().replayVisuals.overrideFov = true;
+					this.settings.editorState().replayVisuals.overrideFovAmount = pose.fov();
+				}
+				if (FlashplusClient.importedCameraOverrideTime) {
+					this.settings.editorState().replayVisuals.overrideTimeOfDay = (long) pose.worldTime();
+				}
+			}
+		} else {
+			FlashplusClient.currentExportPose = null;
+		}
+	}
+
+	@Inject(method = "doExport", at = @At("RETURN"), remap = false)
+	private void flashPlus$cleanupExport(
+			VideoWriter videoWriter,
+			SaveableFramebufferQueue downloader,
+			CallbackInfo ci) {
+		FlashplusClient.currentExportPose = null;
 	}
 
 	@Unique

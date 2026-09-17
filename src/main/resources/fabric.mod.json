@@ -3,15 +3,12 @@
 	"id": "flashplus",
 	"version": "${version}",
 	"name": "flashplus",
-	"description": "This is an example description! Tell everyone what your mod is about!",
+	"description": "This mod fuck everyone up",
 	"authors": [
-		"RedLife"
+		"RedLife",
+		"Maruf"
 	],
-	"contact": {
-		"homepage": "https://fabricmc.net/",
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
-	},
-	"license": "CC0-1.0",
+	"license": "MIT",
 	"icon": "assets/flashplus/icon.png",
 	"environment": "*",
 	"entrypoints": {

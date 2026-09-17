@@ -33,6 +33,7 @@
 		"fabricloader": ">=0.18.4",
 		"minecraft": ">=26.1",
 		"java": ">=21",
-		"fabric-api": "*"
+		"fabric-api": "*",
+		"flashback": ">=${flashback_version}"
 	}
 }

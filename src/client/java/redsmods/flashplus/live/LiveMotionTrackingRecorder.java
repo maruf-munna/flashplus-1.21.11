@@ -4,7 +4,6 @@ import com.google.gson.stream.JsonWriter;
 import com.moulberry.flashback.Flashback;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
-import net.minecraft.network.chat.Component;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 import redsmods.flashplus.Flashplus;
@@ -125,6 +124,35 @@ public final class LiveMotionTrackingRecorder {
         return Result.success("Finalizing " + framesToWrite.size() + " captured camera poses to " + outputFile + ".");
     }
 
+    /**
+     * Stops tracking and waits for the JSON write to finish. This is intended for integrations
+     * that need a truthful success/failure result rather than a queued finalization result.
+     */
+    public synchronized Result stopBlocking() {
+        if (!recording) {
+            return Result.failure("Live motion tracking is not recording.");
+        }
+
+        Minecraft minecraft = Minecraft.getInstance();
+        long stoppedAtNanos = System.nanoTime();
+        Camera camera = minecraft.gameRenderer.mainCamera();
+        if (minecraft.level != null && camera != null && camera.isInitialized()) {
+            captureRawFrame(stoppedAtNanos, camera, minecraft);
+        }
+
+        recording = false;
+        finalizing = true;
+        double durationSeconds = Math.max(0.0, (stoppedAtNanos - startedAtNanos) / 1_000_000_000.0);
+        List<RawFrame> framesToWrite = List.copyOf(rawFrames);
+        int fpsToWrite = recordingFps;
+        Path outputDirectory = recordingDirectory;
+        Path outputFile = createOutputPath(outputDirectory);
+
+        return finalizeRecording(framesToWrite, fpsToWrite, durationSeconds, outputFile)
+                ? Result.success("Live motion tracking saved to " + outputFile + ".")
+                : Result.failure("Failed to save live motion tracking; see the log for details.");
+    }
+
     private void captureRawFrame(long capturedAtNanos, Camera camera, Minecraft minecraft) {
         Vec3 position = camera.position();
         Quaternionf rotation = new Quaternionf(camera.rotation());
@@ -141,7 +169,7 @@ public final class LiveMotionTrackingRecorder {
         lastRawCaptureNanos = capturedAtNanos;
     }
 
-    private void finalizeRecording(List<RawFrame> frames, int fps, double durationSeconds, Path outputFile) {
+    private boolean finalizeRecording(List<RawFrame> frames, int fps, double durationSeconds, Path outputFile) {
         try {
             if (frames.isEmpty()) {
                 throw new IOException("No camera poses were captured.");
@@ -155,10 +183,10 @@ public final class LiveMotionTrackingRecorder {
                 Files.move(partialFile, outputFile);
             }
             Flashplus.LOGGER.info("[FlashPlus] Live motion tracking written to {}", outputFile);
-            notifyClient("Live motion tracking saved to " + outputFile);
+            return true;
         } catch (Exception exception) {
             Flashplus.LOGGER.error("[FlashPlus] Failed to finalize live motion tracking.", exception);
-            notifyClient("Failed to save live motion tracking; see the log for details.");
+            return false;
         } finally {
             synchronized (this) {
                 finalizing = false;
@@ -222,15 +250,6 @@ public final class LiveMotionTrackingRecorder {
             candidate = directory.resolve(stem + "-" + suffix++ + "CJ.json");
         }
         return candidate;
-    }
-
-    private static void notifyClient(String message) {
-        Minecraft minecraft = Minecraft.getInstance();
-        minecraft.execute(() -> {
-            if (minecraft.player != null) {
-                minecraft.player.sendSystemMessage(Component.literal("[FlashPlus] " + message));
-            }
-        });
     }
 
     private record RawFrame(double elapsedSeconds, long epochMillis, double x, double y, double z,

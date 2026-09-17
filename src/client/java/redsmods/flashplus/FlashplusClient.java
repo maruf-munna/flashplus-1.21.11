@@ -4,7 +4,6 @@ import net.fabricmc.api.ClientModInitializer;
 import org.joml.Quaternionf;
 import redsmods.flashplus.live.LiveMotionData;
 import redsmods.flashplus.live.LiveMotionSampler;
-import redsmods.flashplus.live.LiveMotionTrackingCommands;
 import redsmods.flashplus.live.LiveMotionTrackingConfig;
 
 import java.nio.file.Path;
@@ -66,6 +65,5 @@ public class FlashplusClient implements ClientModInitializer {
 	@Override
 	public void onInitializeClient() {
 		LiveMotionTrackingConfig.load();
-		LiveMotionTrackingCommands.register();
 	}
 }

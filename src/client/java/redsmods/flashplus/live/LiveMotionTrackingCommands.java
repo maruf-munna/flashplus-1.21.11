@@ -2,6 +2,7 @@ package redsmods.flashplus.live;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import com.moulberry.flashback.Flashback;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
 import net.minecraft.network.chat.Component;
@@ -12,8 +13,42 @@ public final class LiveMotionTrackingCommands {
     }
 
     public static void register() {
-        ClientCommandRegistrationCallback.EVENT.register((dispatcher, buildContext) -> dispatcher.register(
-                ClientCommands.literal("recordlivemotiontracking")
+        ClientCommandRegistrationCallback.EVENT.register((dispatcher, buildContext) -> {
+            dispatcher.register(ClientCommands.literal("recordflashback")
+                    .then(ClientCommands.literal("on").executes(context -> {
+                        if (!context.getSource().attended()) {
+                            return 0;
+                        }
+                        if (Flashback.RECORDER != null) {
+                            context.getSource().sendError(Component.literal(
+                                    "[FlashPlus] Flashback recording is already running."));
+                            return 0;
+                        }
+
+                        Flashback.startRecordingReplay();
+                        context.getSource().sendFeedback(Component.literal(
+                                "[FlashPlus] Started Flashback recording."));
+                        return 1;
+                    }))
+                    .then(ClientCommands.literal("off").executes(context -> {
+                        if (!context.getSource().attended()) {
+                            return 0;
+                        }
+                        if (Flashback.RECORDER == null) {
+                            context.getSource().sendError(Component.literal(
+                                    "[FlashPlus] No Flashback recording is running."));
+                            return 0;
+                        }
+
+                        // Use Flashback's own finish flow so its normal save dialog is shown.
+                        Flashback.finishRecordingReplay();
+                        context.getSource().sendFeedback(Component.literal(
+                                "[FlashPlus] Finishing Flashback recording; choose where to save it."));
+                        return 1;
+                    }))
+            );
+
+            dispatcher.register(ClientCommands.literal("recordlivemotiontracking")
                         .then(ClientCommands.literal("on").executes(context -> {
                             if (!context.getSource().attended()) {
                                 return 0;
@@ -41,7 +76,8 @@ public final class LiveMotionTrackingCommands {
                                                 .executes(context -> updatePath(
                                                         context.getSource(),
                                                         StringArgumentType.getString(context, "value"))))))
-        ));
+            );
+        });
     }
 
     private static int updateFps(net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource source, int fps) {

@@ -87,7 +87,13 @@ public final class LiveMotionSampler {
         return createPose(pos, rot, fov);
     }
 
-    /** Samples against Flashback's replayed real-time clock (System.currentTimeMillis). */
+    /**
+     * Samples against Flashback's replayed real-time clock (System.currentTimeMillis).
+     *
+     * The camera importer intentionally does not interpolate poses: a 60 FPS export uses the
+     * nearest recorded 60 FPS pose, preserving the captured path exactly instead of creating
+     * a rotation or position that never existed in the recording.
+     */
     public synchronized SampledPose sampleAtEpochMillis(double epochMillis) {
         if (!data.hasWallClockTiming()) {
             return null;
@@ -109,18 +115,11 @@ public final class LiveMotionSampler {
             }
         }
 
-        LiveMotionData.LiveMotionPoint first = points.get(low);
-        LiveMotionData.LiveMotionPoint second = points.get(high);
-        double span = second.epochMillis() - first.epochMillis();
-        if (span <= 0.0) {
-            return toPose(first);
-        }
-
-        float alpha = (float) Math.clamp((epochMillis - first.epochMillis()) / span, 0.0, 1.0);
-        Quaternionf rotation = new Quaternionf(first.rotation()).slerp(second.rotation(), alpha);
-        Vec3 position = first.position().lerp(second.position(), alpha);
-        float fov = (float) (first.fov() + (second.fov() - first.fov()) * alpha);
-        return createPose(position, rotation, fov);
+        LiveMotionData.LiveMotionPoint before = points.get(low);
+        LiveMotionData.LiveMotionPoint after = points.get(high);
+        double beforeDistance = epochMillis - before.epochMillis();
+        double afterDistance = after.epochMillis() - epochMillis;
+        return toPose(beforeDistance <= afterDistance ? before : after);
     }
 
     private static SampledPose toPose(LiveMotionData.LiveMotionPoint p) {

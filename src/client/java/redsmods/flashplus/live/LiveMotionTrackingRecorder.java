@@ -23,7 +23,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Captures the camera pose during rendering, then resamples it to a constant frame rate after recording stops.
+ * Captures the camera pose during rendering and writes a constant-rate track after recording stops.
+ *
+ * Missing source samples are represented by repeating the last real pose.  This is deliberately
+ * a zero-order hold: interpolating a gap can invent a camera orientation (especially while F5
+ * switches between first- and third-person) that the game never actually rendered.
  */
 public final class LiveMotionTrackingRecorder {
     private static final LiveMotionTrackingRecorder INSTANCE = new LiveMotionTrackingRecorder();
@@ -144,7 +148,7 @@ public final class LiveMotionTrackingRecorder {
             }
             Files.createDirectories(outputFile.getParent());
             Path partialFile = outputFile.resolveSibling(outputFile.getFileName() + ".part");
-            writeResampledJson(partialFile, frames, fps, durationSeconds);
+            writeHeldJson(partialFile, frames, fps, durationSeconds);
             try {
                 Files.move(partialFile, outputFile, StandardCopyOption.ATOMIC_MOVE);
             } catch (AtomicMoveNotSupportedException ignored) {
@@ -162,7 +166,7 @@ public final class LiveMotionTrackingRecorder {
         }
     }
 
-    private static void writeResampledJson(Path path, List<RawFrame> rawFrames, int fps, double durationSeconds) throws IOException {
+    private static void writeHeldJson(Path path, List<RawFrame> rawFrames, int fps, double durationSeconds) throws IOException {
         long finalFrameIndex = Math.max(0L, (long) Math.ceil(durationSeconds * fps));
         long startEpochMillis = rawFrames.getFirst().epochMillis();
 
@@ -171,8 +175,9 @@ public final class LiveMotionTrackingRecorder {
             writer.setIndent("  ");
             writer.beginObject();
             writer.name("format").value("flashplus-live-motion-tracking");
-            writer.name("version").value(1);
+            writer.name("version").value(2);
             writer.name("fps").value(fps);
+            writer.name("gap_handling").value("hold_previous_pose");
             writer.name("duration_seconds").value(durationSeconds);
             writer.name("start_epoch_millis").value(startEpochMillis);
             writer.name("keyframes").beginArray();
@@ -184,42 +189,15 @@ public final class LiveMotionTrackingRecorder {
                         && rawFrames.get(lowerIndex + 1).elapsedSeconds() <= timestamp) {
                     lowerIndex++;
                 }
-                RawFrame frame = interpolate(rawFrames, lowerIndex, timestamp);
+                // Never blend the lower and upper records. If rendering stalls, every output
+                // slot until the next captured pose is an exact repeat of this lower pose.
+                RawFrame frame = rawFrames.get(lowerIndex);
                 writeFrame(writer, frameIndex, timestamp, frame);
             }
 
             writer.endArray();
             writer.endObject();
         }
-    }
-
-    private static RawFrame interpolate(List<RawFrame> frames, int lowerIndex, double timestamp) {
-        RawFrame lower = frames.get(lowerIndex);
-        if (lowerIndex + 1 >= frames.size() || timestamp <= lower.elapsedSeconds()) {
-            return lower;
-        }
-
-        RawFrame upper = frames.get(lowerIndex + 1);
-        double span = upper.elapsedSeconds() - lower.elapsedSeconds();
-        if (span <= 0.0) {
-            return upper;
-        }
-        float amount = (float) Math.clamp((timestamp - lower.elapsedSeconds()) / span, 0.0, 1.0);
-        Quaternionf rotation = new Quaternionf(lower.rotation()).slerp(upper.rotation(), amount);
-
-        return new RawFrame(
-                timestamp,
-                Math.round(lerp(lower.epochMillis(), upper.epochMillis(), amount)),
-                lerp(lower.x(), upper.x(), amount),
-                lerp(lower.y(), upper.y(), amount),
-                lerp(lower.z(), upper.z(), amount),
-                rotation,
-                (float) lerp(lower.fov(), upper.fov(), amount)
-        );
-    }
-
-    private static double lerp(double first, double second, float amount) {
-        return first + (second - first) * amount;
     }
 
     private static void writeFrame(JsonWriter writer, long frameIndex, double timestamp, RawFrame frame) throws IOException {

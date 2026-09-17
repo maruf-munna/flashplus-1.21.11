@@ -7,7 +7,7 @@ import org.joml.Vector3f;
 import java.util.List;
 
 /**
- * Continuously evaluates and interpolates a {@link LiveMotionData} dataset at any arbitrary timestamp.
+ * Evaluates a {@link LiveMotionData} dataset without creating poses that are not in the file.
  */
 public final class LiveMotionSampler {
     private final LiveMotionData data;
@@ -35,64 +35,26 @@ public final class LiveMotionSampler {
             return toPose(points.getLast());
         }
 
-        // Fast sequential search with fallback to binary search
-        int count = points.size();
-        int lower = lastIndex;
-        if (lower >= count - 1 || points.get(lower).timestamp() > seconds) {
-            lower = 0;
-        }
-
-        // Advance sequentially if near
-        while (lower + 1 < count && points.get(lower + 1).timestamp() <= seconds) {
-            lower++;
-        }
-
-        // If sequential check didn't locate the bracket, binary search
-        if (lower + 1 < count && points.get(lower).timestamp() > seconds) {
-            int low = 0;
-            int high = count - 1;
-            while (low <= high) {
-                int mid = (low + high) >>> 1;
-                if (points.get(mid).timestamp() <= seconds) {
-                    lower = mid;
-                    low = mid + 1;
-                } else {
-                    high = mid - 1;
-                }
+        int low = 0;
+        int high = points.size();
+        while (low < high) {
+            int middle = (low + high) >>> 1;
+            if (points.get(middle).timestamp() <= seconds) {
+                low = middle + 1;
+            } else {
+                high = middle;
             }
         }
-
-        lastIndex = lower;
-        int upper = Math.min(lower + 1, count - 1);
-
-        LiveMotionData.LiveMotionPoint p0 = points.get(lower);
-        LiveMotionData.LiveMotionPoint p1 = points.get(upper);
-
-        double span = p1.timestamp() - p0.timestamp();
-        if (span <= 0.0) {
-            return toPose(p0);
-        }
-
-        float alpha = (float) Math.clamp((seconds - p0.timestamp()) / span, 0.0, 1.0);
-
-        // SLERP quaternion
-        Quaternionf rot = new Quaternionf(p0.rotation()).slerp(p1.rotation(), alpha);
-
-        // LERP position
-        Vec3 pos = p0.position().lerp(p1.position(), alpha);
-
-        // LERP FOV
-        float fov = (float) (p0.fov() + (p1.fov() - p0.fov()) * alpha);
-
-        return createPose(pos, rot, fov);
+        lastIndex = Math.max(0, low - 1);
+        return toPose(points.get(lastIndex));
     }
 
     /**
      * Samples against Flashback's replayed real-time clock (System.currentTimeMillis).
      *
-     * The camera importer intentionally does not interpolate poses: a 60 FPS export uses the
-     * nearest recorded 60 FPS pose, preserving the captured path exactly instead of creating
-     * a rotation or position that never existed in the recording.
+     * The importer selects the last pose at or before the requested millisecond. This makes a
+     * dropped recording frame a hold, not a blend, and never pulls a pose backwards from a
+     * future frame.
      */
     public synchronized SampledPose sampleAtEpochMillis(double epochMillis) {
         if (!data.hasWallClockTiming()) {
@@ -105,21 +67,16 @@ public final class LiveMotionSampler {
         }
 
         int low = 0;
-        int high = points.size() - 1;
-        while (low + 1 < high) {
+        int high = points.size();
+        while (low < high) {
             int middle = (low + high) >>> 1;
             if (points.get(middle).epochMillis() <= epochMillis) {
-                low = middle;
+                low = middle + 1;
             } else {
                 high = middle;
             }
         }
-
-        LiveMotionData.LiveMotionPoint before = points.get(low);
-        LiveMotionData.LiveMotionPoint after = points.get(high);
-        double beforeDistance = epochMillis - before.epochMillis();
-        double afterDistance = after.epochMillis() - epochMillis;
-        return toPose(beforeDistance <= afterDistance ? before : after);
+        return toPose(points.get(Math.max(0, low - 1)));
     }
 
     private static SampledPose toPose(LiveMotionData.LiveMotionPoint p) {
